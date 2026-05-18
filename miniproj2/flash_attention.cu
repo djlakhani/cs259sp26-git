@@ -5,8 +5,12 @@
 #include <stdlib.h>
 
 #define D 64
+#ifndef Br
 #define Br 16
+#endif
+#ifndef Bc
 #define Bc 16
+#endif
 
 #define QKV(row, col) ((row)*D + (col))
 
@@ -192,11 +196,18 @@ static void run(int S) {
     free(V);
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    if (argc > 1) {
+        run(atoi(argv[1]));
+        return 0;
+    }
+
     run(512);
+    run(1024);
     run(2048);
     run(4096);
     run(8192);
+    run(16384);
     run(65536);
     return 0;
 }
