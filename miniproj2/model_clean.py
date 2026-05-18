@@ -143,10 +143,6 @@ def model_roofline_l2_serial(S, D=D, Br=Br, Bc=Bc):
         num_blocks_reuse = num_blocks - num_blocks_scheduled_alone - (num_waves - 1) * NUM_SMS
     else:
         num_blocks_reuse = num_blocks - num_waves * NUM_SMS
-
-    # num_sms_at_least_one_block_last_wave = num_blocks - (num_waves - 1) * NUM_SMS
-    # sms_with_two_blocks = (num_waves - 1) * NUM_SMS + (num_blocks % (NUM_SMS * max_blocks_per_sm)) % min(NUM_SMS, num_sms_at_least_one_block_last_wave)
-
     
     # shared mem
     bytes_shared_mem_write = 0.0
@@ -154,12 +150,29 @@ def model_roofline_l2_serial(S, D=D, Br=Br, Bc=Bc):
     intensity_shared_mem = 0.0
 
     num_iters  = S // Bc
+
+    # initialize row max, row sum, q tile and o tile
     I = 8 * Br * (D + 1)
+
+    # repeated S/Bc (num_iters) times
     P = 4 * (
-        Bc * D * (2 + 3 * Br)
-        + Br * Bc * (D / 32 + 11)
-        + 2 * Br * D
-        + 11 * Br
+        2 * Bc * D + # write Kj, Vj
+        Bc * Br * D * 2 + # each thread computes Qi[] * Kj[]
+        Br * Bc * 2 + # write to dot_warp
+        Bc * Br * 2 + # read from dot_warp
+        Bc * Br + # write to Sij
+        Br + # read from rowmax
+        Bc * Br + # read from Sij
+        3 * Br + # corr, rowmax, rowmaxnew
+        2 * Br * Bc + # read and write Sij
+        Br + # read rowMaxNew, read once for each warp
+        Br * Bc + # read Sij
+        3 * Br + # rsumNew, rsum, corr
+        Br * Bc * 2 + # read Sij, all threads in a warp read same address = 1 access
+        Br * Bc * D + # Vij reads
+        2 * Br * D + # read and write Oi
+        Br * 2 + # corr, read once for each warp
+        Br * 3
     )
     F = 4 * Br * (D + 1)
     bytes_shared_mem_total = num_blocks * (I + num_iters * P + F)
