@@ -10,6 +10,8 @@ Relevant metrics and what they validate in the model:
       → actual L2 miss traffic (bytes that had to go to DRAM from L2)
   smsp__sass_thread_inst_executed_op_ffma_pred_on.sum
       → model flops / 2  (each FFMA = 2 FLOPs)
+  sm__sass_data_bytes_mem_shared.sum
+      → shared-memory traffic for derived shared-memory arithmetic intensity
   gpu__time_duration.sum
       → model pred_ms  (reported in nanoseconds)
   sm__warps_active.avg.pct_of_peak_sustained_active
@@ -18,9 +20,12 @@ Relevant metrics and what they validate in the model:
 Usage:
     python3 collect.py              # collect for DEFAULT_SIZES
     python3 collect.py 4096 65536   # collect for specific S values
-    python3 collect.py --show       # print cache contents without collecting
+    python3 collect.py --Br 8 --Bc 16 4096 65536
+    python3 collect.py --Br 8 --Bc 16 --show
+                                    # print matching cache contents without collecting
 """
 
+import argparse
 import csv
 import io
 import json
@@ -28,7 +33,7 @@ import os
 import subprocess
 import sys
 
-CACHE_FILE = "ncu_cache.json"
+CACHE_FILE_TEMPLATE = "ncu_cache_Br{Br}_Bc{Bc}.json"
 BINARY     = "./flash_attention"
 
 METRICS = [
@@ -39,15 +44,22 @@ METRICS = [
     "lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_ld.sum",
     "lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_st.sum",
     "smsp__sass_thread_inst_executed_op_ffma_pred_on.sum",
+    "sm__sass_data_bytes_mem_shared.sum",
     "gpu__time_duration.sum",
     "sm__warps_active.avg.pct_of_peak_sustained_active",
 ]
 
 DEFAULT_SIZES = [512, 1024, 2048, 4096, 8192, 16384, 65536]
+DEFAULT_BR = 16
+DEFAULT_BC = 16
 
 
-def cache_key(S, Br=16, Bc=16):
+def cache_key(S, Br=DEFAULT_BR, Bc=DEFAULT_BC):
     return f"S{S}_Br{Br}_Bc{Bc}"
+
+
+def cache_file(Br=DEFAULT_BR, Bc=DEFAULT_BC):
+    return CACHE_FILE_TEMPLATE.format(Br=Br, Bc=Bc)
 
 
 def run_ncu(S):
@@ -90,20 +102,20 @@ def parse_csv(stdout):
     return metrics
 
 
-def load_cache():
-    if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE) as f:
+def load_cache(path):
+    if os.path.exists(path):
+        with open(path) as f:
             return json.load(f)
     return {}
 
 
-def save_cache(cache):
-    with open(CACHE_FILE, "w") as f:
+def save_cache(cache, path):
+    with open(path, "w") as f:
         json.dump(cache, f, indent=2)
 
 
-def show_cache():
-    cache = load_cache()
+def show_cache(path):
+    cache = load_cache(path)
     if not cache:
         print("Cache is empty.")
         return
@@ -131,17 +143,24 @@ def show_cache():
 
 
 def main():
-    if "--show" in sys.argv:
-        show_cache()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("sizes", nargs="*", type=int)
+    parser.add_argument("--Br", type=int, default=DEFAULT_BR)
+    parser.add_argument("--Bc", type=int, default=DEFAULT_BC)
+    parser.add_argument("--show", action="store_true")
+    args = parser.parse_args()
+    path = cache_file(Br=args.Br, Bc=args.Bc)
+
+    if args.show:
+        show_cache(path)
         return
 
-    sizes = list(map(int, [a for a in sys.argv[1:] if not a.startswith("-")])) \
-            if len(sys.argv) > 1 else DEFAULT_SIZES
+    sizes = args.sizes if args.sizes else DEFAULT_SIZES
 
-    cache = load_cache()
+    cache = load_cache(path)
 
     for S in sizes:
-        key = cache_key(S, Br=8, Bc=16)
+        key = cache_key(S, Br=args.Br, Bc=args.Bc)
         print(f"\nCollecting S={S}  (key={key}) ...")
         stdout, stderr = run_ncu(S)
         metrics = parse_csv(stdout)
@@ -152,13 +171,13 @@ def main():
                 print(f"  stderr: {stderr[:400]}")
             continue
 
-        cache[key] = {"S": S, "Br": 16, "Bc": 16, **metrics}
+        cache[key] = {"S": S, "Br": args.Br, "Bc": args.Bc, **metrics}
         ns = metrics.get("gpu__time_duration.sum")
         print(f"  OK — {len(metrics)} metrics  runtime={ns/1e6:.4f} ms" if ns
               else f"  OK — {len(metrics)} metrics")
 
-    save_cache(cache)
-    print(f"\nSaved → {CACHE_FILE}")
+    save_cache(cache, path)
+    print(f"\nSaved → {path}")
 
 
 if __name__ == "__main__":
