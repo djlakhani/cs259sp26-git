@@ -1,0 +1,62 @@
+{
+  "S512_Br4_Bc4": {
+    "S": 512,
+    "Br": 4,
+    "Bc": 4,
+    "dram__bytes_read.sum": 397952.0,
+    "dram__bytes_write.sum": 0.0,
+    "gpu__time_duration.sum": 230528.0,
+    "l1tex__t_bytes_pipe_lsu_mem_global_op_ld.sum": 33685504.0,
+    "l1tex__t_bytes_pipe_lsu_mem_global_op_st.sum": 131072.0,
+    "lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_ld.sum": 21102592.0,
+    "lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_st.sum": 131072.0,
+    "sm__sass_data_bytes_mem_shared.sum": 283779072.0,
+    "sm__warps_active.avg.pct_of_peak_sustained_active": 20.0,
+    "smsp__sass_thread_inst_executed_op_ffma_pred_on.sum": 22511616.0
+  },
+  "S2048_Br4_Bc4": {
+    "S": 2048,
+    "Br": 4,
+    "Bc": 4,
+    "dram__bytes_read.sum": 1577600.0,
+    "dram__bytes_write.sum": 11648.0,
+    "gpu__time_duration.sum": 1549536.0,
+    "l1tex__t_bytes_pipe_lsu_mem_global_op_ld.sum": 535112832.0,
+    "l1tex__t_bytes_pipe_lsu_mem_global_op_st.sum": 524288.0,
+    "lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_ld.sum": 167592320.0,
+    "lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_st.sum": 524288.0,
+    "sm__sass_data_bytes_mem_shared.sum": 4535648256.0,
+    "sm__warps_active.avg.pct_of_peak_sustained_active": 79.93,
+    "smsp__sass_thread_inst_executed_op_ffma_pred_on.sum": 358219776.0
+  },
+  "S8192_Br4_Bc4": {
+    "S": 8192,
+    "Br": 4,
+    "Bc": 4,
+    "dram__bytes_read.sum": 16385600.0,
+    "dram__bytes_write.sum": 4076896.0,
+    "gpu__time_duration.sum": 26088352.0,
+    "l1tex__t_bytes_pipe_lsu_mem_global_op_ld.sum": 9155475072.0,
+    "l1tex__t_bytes_pipe_lsu_mem_global_op_st.sum": 2097152.0,
+    "lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_ld.sum": 4809847552.0,
+    "lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_st.sum": 2097152.0,
+    "sm__sass_data_bytes_mem_shared.sum": 72551104512.0,
+    "sm__warps_active.avg.pct_of_peak_sustained_active": 92.55,
+    "smsp__sass_thread_inst_executed_op_ffma_pred_on.sum": 5723652096.0
+  },
+  "S65536_Br4_Bc4": {
+    "S": 65536,
+    "Br": 4,
+    "Bc": 4,
+    "dram__bytes_read.sum": 49554914496.0,
+    "dram__bytes_write.sum": 18751264.0,
+    "gpu__time_duration.sum": 1436956576.0,
+    "l1tex__t_bytes_pipe_lsu_mem_global_op_ld.sum": 549809614080.0,
+    "l1tex__t_bytes_pipe_lsu_mem_global_op_st.sum": 16777216.0,
+    "lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_ld.sum": 508990813824.0,
+    "lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_st.sum": 16777216.0,
+    "sm__sass_data_bytes_mem_shared.sum": 4642911027200.0,
+    "sm__warps_active.avg.pct_of_peak_sustained_active": 99.13,
+    "smsp__sass_thread_inst_executed_op_ffma_pred_on.sum": 366166933504.0
+  }
+}

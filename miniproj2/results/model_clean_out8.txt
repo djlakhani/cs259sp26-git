@@ -1,0 +1,120 @@
+
+=== Model comparison (flash-attention prefill, TitanV) ===
+       S  |      roofline_l2_serial        |  meas ms
+          |   pred ms   MAPE%  TFLOPS    |  
+---------+------------------------------+---------
+     512  |     0.154           0.00T    |  
+   1,024  |     0.308           0.00T    |  
+   2,048  |     0.616           0.00T    |  
+   4,096  |     2.464   53.7%   0.00T    |    5.3279
+   8,192  |     9.856           0.00T    |  
+  65,536  |   650.764   41.0%   0.00T    |  1102.8531
+
+  Hardware:  Peak=13.8 TFLOPS  DRAM=653 GB/s  L2=3000 GB/s (cap 4.5 MB)  Clock=1.200 GHz  80 SMs
+  Latencies: FMA=4cy  SHFL=32cy  SYNC=30cy  (v3 uses cycles_kv=1554 per KV tile)
+
+=== NCU metric comparison  (model: model_roofline_l2_serial) ===
+       S  quantity                         model           ncu    error%
+------------------------------------------------------------------------
+     512  DRAM total (MB)                   0.39          0.40       1.5%
+            reads (MB)                      0.39          0.40       1.5%
+            writes (MB)                     0.00          0.00          —
+          L2 total (MB)                    17.04         17.04       0.0%
+            reads (MB)                     16.91         16.91       0.0%
+            writes (MB)                     0.13          0.13       0.0%
+          L1 total (MB)                    17.04         17.04       0.0%
+            reads (MB)                     16.91         16.91       0.0%
+            writes (MB)                     0.13          0.13       0.0%
+          DRAM intensity                  100.83        101.45       0.6%
+          L2 intensity                      2.33          2.38       2.1%
+          L1 intensity                      2.33          2.38       2.1%
+          shared mem intensity              0.16          0.16       2.1%
+          FLOPs (GFLOPs)                     0.0           0.0       2.1%
+          performance (TFLOP/s)             0.26          0.22      15.9%
+          runtime (ms)                     0.154         0.183      15.6%
+
+   1,024  DRAM total (MB)                   0.79          0.79       0.8%
+            reads (MB)                      0.79          0.79       0.8%
+            writes (MB)                     0.00          0.00          —
+          L2 total (MB)                    39.53         43.28       8.7%
+            reads (MB)                     39.27         43.02       8.7%
+            writes (MB)                     0.26          0.26       0.0%
+          L1 total (MB)                    67.63         67.60       0.1%
+            reads (MB)                     67.37         67.34       0.1%
+            writes (MB)                     0.26          0.26       0.0%
+          DRAM intensity                  201.50        203.61       1.0%
+          L2 intensity                      4.01          3.73       7.5%
+          L1 intensity                      2.34          2.39       1.8%
+          shared mem intensity              0.16          0.16       1.8%
+          FLOPs (GFLOPs)                     0.2           0.2       1.8%
+          performance (TFLOP/s)             0.51          0.38      34.1%
+          runtime (ms)                     0.308         0.421      26.8%
+
+   2,048  DRAM total (MB)                   1.57          1.60       1.8%
+            reads (MB)                      1.57          1.58       0.4%
+            writes (MB)                     0.00          0.02     100.0%
+          L2 total (MB)                   145.84        123.90      17.7%
+            reads (MB)                    145.31        123.37      17.8%
+            writes (MB)                     0.52          0.52       0.0%
+          L1 total (MB)                   269.48        271.01       0.6%
+            reads (MB)                    268.96        270.48       0.6%
+            writes (MB)                     0.52          0.52       0.0%
+          DRAM intensity                  402.83        401.99       0.2%
+          L2 intensity                      4.34          5.20      16.4%
+          L1 intensity                      2.35          2.38       1.1%
+          shared mem intensity              0.16          0.16       1.6%
+          FLOPs (GFLOPs)                     0.6           0.6       1.6%
+          performance (TFLOP/s)             1.03          0.45     128.5%
+          runtime (ms)                     0.616         1.432      57.0%
+
+   4,096  DRAM total (MB)                   3.15          3.86      18.5%
+            reads (MB)                      3.15          3.15       0.2%
+            writes (MB)                     0.00          0.71     100.0%
+          L2 total (MB)                   581.25        547.21       6.2%
+            reads (MB)                    580.20        546.16       6.2%
+            writes (MB)                     1.05          1.05       0.0%
+          L1 total (MB)                  1075.84       1084.32       0.8%
+            reads (MB)                   1074.79       1083.27       0.8%
+            writes (MB)                     1.05          1.05       0.0%
+          DRAM intensity                  805.50        667.01      20.8%
+          L2 intensity                      4.36          4.70       7.3%
+          L1 intensity                      2.36          2.37       0.8%
+          shared mem intensity              0.16          0.16       1.5%
+          FLOPs (GFLOPs)                     2.5           2.6       1.5%
+          performance (TFLOP/s)             1.03          0.46     125.2%
+          runtime (ms)                     2.464         5.636      56.3%
+
+   8,192  DRAM total (MB)                  20.97         20.12       4.3%
+            reads (MB)                     18.87         16.88      11.8%
+            writes (MB)                     2.10          3.23      35.1%
+          L2 total (MB)                  2275.83       2106.80       8.0%
+            reads (MB)                   2273.73       2104.70       8.0%
+            writes (MB)                     2.10          2.10       0.0%
+          L1 total (MB)                  4299.16       4286.39       0.3%
+            reads (MB)                   4297.06       4284.30       0.3%
+            writes (MB)                     2.10          2.10       0.0%
+          DRAM intensity                  483.25        511.53       5.5%
+          L2 intensity                      4.45          4.88       8.8%
+          L1 intensity                      2.36          2.40       1.8%
+          shared mem intensity              0.16          0.16       1.5%
+          FLOPs (GFLOPs)                    10.1          10.3       1.5%
+          performance (TFLOP/s)             1.03          0.48     112.4%
+          runtime (ms)                     9.856        21.252      53.6%
+
+  65,536  DRAM total (MB)                 905.97      16061.58      94.4%
+            reads (MB)                    889.19      16043.10      94.5%
+            writes (MB)                    16.78         18.47       9.2%
+          L2 total (MB)                137504.72     177599.18      22.6%
+            reads (MB)                 137487.94     177582.41      22.6%
+            writes (MB)                    16.78         16.78       0.0%
+          L1 total (MB)                274911.46     282007.34       2.5%
+            reads (MB)                 274894.68     281990.57       2.5%
+            writes (MB)                    16.78         16.78       0.0%
+          DRAM intensity                  715.86         40.98    1646.7%
+          L2 intensity                      4.72          3.71      27.3%
+          L1 intensity                      2.36          2.33       1.1%
+          shared mem intensity              0.16          0.16       1.5%
+          FLOPs (GFLOPs)                   648.5         658.2       1.5%
+          performance (TFLOP/s)             1.00          0.56      77.7%
+          runtime (ms)                   650.764      1173.601      44.5%
+

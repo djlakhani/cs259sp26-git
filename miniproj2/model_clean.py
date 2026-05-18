@@ -2,9 +2,9 @@
 Performance models for the flash-attention prefill kernel on TitanV (GV100).
 
 Usage:
-    python3 model.py                   # sweep DEFAULT_SIZES
-    python3 model.py 4096 65536        # specific sequence lengths
-    python3 model.py --Br 16 --Bc 16 4096 65536
+    python3 model_clean.py                   # sweep DEFAULT_SIZES
+    python3 model_clean.py 4096 65536        # specific sequence lengths
+    python3 model_clean.py --Br 16 --Bc 16 4096 65536
 
 Tile parameters (Br, Bc) are keyword arguments on each model function;
 they default to the values compiled into flash_attention.cu.
@@ -61,7 +61,6 @@ DEFAULT_SIZES = [512, 1024, 2048, 4096, 8192, 65536]
 # ---------------------------------------------------------------------------
 # Model v1: simple roofline
 #   Assumes minimum possible DRAM traffic (Q+K+V+O each loaded/stored once).
-#   Ignores repeated K/V reloads and L2 hierarchy.
 # ---------------------------------------------------------------------------
 def model_roofline(S, D=D, Br=Br, Bc=Bc):
     flops      = 2 * S * S * D
@@ -83,8 +82,12 @@ def model_roofline(S, D=D, Br=Br, Bc=Bc):
     if theoretical_bytes_dram > L2_CAPACITY:
         bytes_dram = theoretical_bytes_dram
         bytes_dram += (num_waves - 1) * kv_bytes
+        bytes_dram_write = S * D * BYTES_PER_FLOAT
+        bytes_dram_read = bytes_dram - bytes_dram_write
     else:
-        bytes_dram = 3 * S * D * BYTES_PER_FLOAT   
+        bytes_dram = 3 * S * D * BYTES_PER_FLOAT 
+        bytes_dram_read = 3 * S * D * BYTES_PER_FLOAT
+        bytes_dram_write = 0  
 
 
     intensity = flops / bytes_dram
@@ -101,8 +104,8 @@ def model_roofline(S, D=D, Br=Br, Bc=Bc):
         "flops":    flops,
         "tflops/s":  performance,
         "bytes_dram": bytes_dram,
-        "bytes_dram_read": 0,
-        "bytes_dram_write": 0,
+        "bytes_dram_read": bytes_dram_read,
+        "bytes_dram_write": bytes_dram_write,
         "bytes_l2": 0,
         "bytes_l2_read": 0,
         "bytes_l2_write": 0,
@@ -178,7 +181,6 @@ def model_roofline_l2_serial(S, D=D, Br=Br, Bc=Bc):
     F = 4 * Br * (D + 1)
     bytes_shared_mem_total = num_blocks * (I + num_iters * P + F)
     intensity_shared_mem = flops / bytes_shared_mem_total
-    
 
     # l1
     bytes_l1_write = S * D * BYTES_PER_FLOAT
@@ -215,36 +217,12 @@ def model_roofline_l2_serial(S, D=D, Br=Br, Bc=Bc):
     t_dram  = bytes_dram / DRAM_BW
     t_l2 = bytes_l2 / L2_BW
 
-    # sync_lat = N_SYNCS * SYNC_LAT
-    # qk_lat = Bc * (N_SHFL * SHFL_LAT + FMA_LAT)
-    # pv_lat = Bc * FMA_LAT + 1
-    # max_lat = Bc * FMA_LAT
-    # row_sum_lat = Bc * FMA_LAT + 1
-    # kv_lat = sync_lat + qk_lat + pv_lat + max_lat + row_sum_lat
-
-    # q_load_lat = DRAM_LAT
-
-    # sync_lat    = N_SYNCS * SYNC_LAT
-    # ld_lat      = L2_LD_LAT
-    # qk_lat      = Bc * (N_SHFL * SHFL_LAT + FMA_LAT)
-    # reduce_lat  = (D // 32) * (SMEM_LAT + FMA_LAT)
-    # max_lat     = Bc * (SMEM_LAT + FMA_LAT)
-    # exp_lat     = 2 * EXP_LAT
-    # rowsum_lat  = Bc * (SMEM_LAT + FMA_LAT)
-    # pv_lat      = Bc * (2 * SMEM_LAT + 2 * FMA_LAT)
-
-    # kv_lat = sync_lat + ld_lat + qk_lat + reduce_lat + max_lat + exp_lat + rowsum_lat + pv_lat
-
-    # t_lat = num_waves * (kv_lat * num_iters + q_load_lat)
-    # t_lat = t_lat / SM_CLOCK
-
-################
-# KV tile load: one latency + bandwidth transfer term
+    # KV tile load: one latency + bandwidth transfer term
     kv_tile_bytes      = 2 * Bc * D * BYTES_PER_FLOAT
     l2_bw_per_sm_bpc   = (L2_BW  / NUM_SMS) / SM_CLOCK   # bytes/cycle/SM
     dram_bw_per_sm_bpc = (DRAM_BW / NUM_SMS) / SM_CLOCK
 
-    # regime: does total KV data fit in L2?
+    # does total KV data fit in L2? if not must go to DRAM, increasing latency
     total_kv = 2 * S * D * BYTES_PER_FLOAT
     ld_lat = (L2_LD_LAT + kv_tile_bytes / l2_bw_per_sm_bpc if total_kv < L2_CAPACITY
             else DRAM_LAT + kv_tile_bytes / dram_bw_per_sm_bpc)
@@ -263,7 +241,6 @@ def model_roofline_l2_serial(S, D=D, Br=Br, Bc=Bc):
     q_load_lat = DRAM_LAT
 
     t_lat = num_waves * (kv_lat * num_iters + q_load_lat) / SM_CLOCK
-#################
 
     t_pred    = max(t_compute, t_dram, t_l2, t_lat)
 
@@ -379,12 +356,22 @@ def _ncu_key(S, Br=Br, Bc=Bc):
 
 def get_visualization_data(S, tile_pairs=((4, 4), (8, 8), (16, 16)), model_fn=model_roofline_l2_serial):
     metrics = [
+        ("pred_ms", "runtime", "ms"),
+        ("flops", "FLOPs", "GFLOPs"),
+        ("tflops/s", "performance", "TFLOP/s"),
+        ("bytes_dram", "DRAM total", "MB"),
+        ("bytes_dram_read", "DRAM reads", "MB"),
+        ("bytes_dram_write", "DRAM writes", "MB"),
+        ("bytes_l2", "L2 total", "MB"),
+        ("bytes_l2_read", "L2 reads", "MB"),
+        ("bytes_l2_write", "L2 writes", "MB"),
+        ("bytes_l1", "L1 total", "MB"),
+        ("bytes_l1_read", "L1 reads", "MB"),
+        ("bytes_l1_write", "L1 writes", "MB"),
         ("intensity_dram", "DRAM intensity", "FLOP/B"),
         ("intensity_l2", "L2 intensity", "FLOP/B"),
         ("intensity_l1", "L1 intensity", "FLOP/B"),
         ("intensity_shared_mem", "shared mem intensity", "FLOP/B"),
-        ("tflops/s", "performance", "TFLOP/s"),
-        ("flops", "FLOPs", "GFLOPs"),
     ]
     data = {
         "S": S,
@@ -412,6 +399,20 @@ def get_visualization_data(S, tile_pairs=((4, 4), (8, 8), (16, 16)), model_fn=mo
                      if entry else None)
         ncu_runtime_s = (nget("gpu__time_duration.sum") / 1e9 if entry else None)
         actuals = {
+            "pred_ms": nget("gpu__time_duration.sum") / 1e6 if entry else None,
+            "flops": ncu_flops / 1e9 if ncu_flops is not None else None,
+            "tflops/s": safe_div(ncu_flops, ncu_runtime_s * 1e12 if ncu_runtime_s else None),
+            "bytes_dram": nget("dram__bytes_read.sum", "dram__bytes_write.sum"),
+            "bytes_dram_read": nget("dram__bytes_read.sum"),
+            "bytes_dram_write": nget("dram__bytes_write.sum"),
+            "bytes_l2": nget("lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_ld.sum",
+                              "lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_st.sum"),
+            "bytes_l2_read": nget("lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_ld.sum"),
+            "bytes_l2_write": nget("lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_st.sum"),
+            "bytes_l1": nget("l1tex__t_bytes_pipe_lsu_mem_global_op_ld.sum",
+                              "l1tex__t_bytes_pipe_lsu_mem_global_op_st.sum"),
+            "bytes_l1_read": nget("l1tex__t_bytes_pipe_lsu_mem_global_op_ld.sum"),
+            "bytes_l1_write": nget("l1tex__t_bytes_pipe_lsu_mem_global_op_st.sum"),
             "intensity_dram": safe_div(ncu_flops, nget("dram__bytes_read.sum",
                                                        "dram__bytes_write.sum")),
             "intensity_l2": safe_div(ncu_flops,
@@ -421,13 +422,17 @@ def get_visualization_data(S, tile_pairs=((4, 4), (8, 8), (16, 16)), model_fn=mo
                                       nget("l1tex__t_bytes_pipe_lsu_mem_global_op_ld.sum",
                                            "l1tex__t_bytes_pipe_lsu_mem_global_op_st.sum")),
             "intensity_shared_mem": safe_div(ncu_flops, nget("sm__sass_data_bytes_mem_shared.sum")),
-            "tflops/s": safe_div(ncu_flops, ncu_runtime_s * 1e12 if ncu_runtime_s else None),
-            "flops": ncu_flops / 1e9 if ncu_flops is not None else None,
         }
 
         for key, _, _ in metrics:
-            pred = r["flops"] / 1e9 if key == "flops" else r.get(key)
+            pred = r.get(key)
+            if key == "flops":
+                pred = pred / 1e9 if pred is not None else None
+            elif key.startswith("bytes_"):
+                pred = pred / 1e6 if pred is not None else None
             actual = actuals[key]
+            if key.startswith("bytes_"):
+                actual = actual / 1e6 if actual is not None else None
             data["metrics"][key]["values"].append({
                 "Br": tile_Br,
                 "Bc": tile_Bc,
