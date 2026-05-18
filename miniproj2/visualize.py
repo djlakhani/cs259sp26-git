@@ -12,14 +12,16 @@ import matplotlib.pyplot as plt
 
 import model_clean
 
+# (4,4) only available for 512, 2048, 8195, 65536
 
-TILE_PAIRS = [(8, 8), (16, 16)]
+TILE_PAIRS = [(4,4), (8, 8), (16, 16)]
 METRIC_ORDER = [
     "intensity_dram",
     "intensity_l2",
     "intensity_l1",
     "intensity_shared_mem",
     "tflops/s",
+    "flops",
 ]
 
 
@@ -66,11 +68,14 @@ def plot_for_s(S, output_dir="plots"):
     for ax, key in zip(axes, METRIC_ORDER):
         _plot_metric(ax, data["metrics"][key], tile_labels)
 
-    axes[-1].axis("off")
+    for ax in axes[len(METRIC_ORDER):]:
+        ax.axis("off")
+
     handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="upper center", ncol=2, frameon=False)
-    fig.suptitle(f"Predicted vs Actual Metrics for S={S}", y=0.98)
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    fig.suptitle(f"Predicted vs Actual Metrics for S={S}", y=0.995)
+    fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 0.965),
+               ncol=2, frameon=False)
+    fig.tight_layout(rect=(0, 0, 1, 0.92))
 
     os.makedirs(output_dir, exist_ok=True)
     path = os.path.join(output_dir, f"S{S}_metrics.png")

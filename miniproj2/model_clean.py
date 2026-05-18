@@ -38,13 +38,14 @@ SHFL_LAT = 32   # __shfl_down_sync
 SYNC_LAT = 30   # __syncthreads
 N_SHFL   = 5    # log2(32) reduction steps
 N_SYNCS  = 7    # __syncthreads calls per KV tile
-L2_LD_LAT = 192 # TODO: account for DRAM
+L2_LD_LAT = 192
 SMEM_LAT = 19
+DRAM_LAT = 500    # very rough estimate (varies widely based on access pattern and concurrency)
 # ---------------------------------------------------------------------------
 # Kernel tile parameters (match flash_attention.cu)
 # ---------------------------------------------------------------------------
 D  = 64
-Br = 8
+Br = 16
 Bc = 16
 
 # ---------------------------------------------------------------------------
@@ -66,20 +67,24 @@ def model_roofline(S, D=D, Br=Br, Bc=Bc):
     flops      = 2 * S * S * D
     theoretical_bytes_dram = 4 * S * D * BYTES_PER_FLOAT   
     kv_bytes = 2 * S * D * BYTES_PER_FLOAT
+    shared_mem_bytes_per_block = (2 * Br * D +
+                                  2 * Bc * D + 
+                                  Br * Bc +
+                                  2 * Br * Bc +
+                                  5 * Br) * BYTES_PER_FLOAT
 
     # wave calculation
     num_blocks = (S + Br - 1) // Br
     threads_per_block = Br * D
-    # TODO: check this
-    blocks_per_sm = 2048 / threads_per_block
-    num_waves = ceil(num_blocks / (blocks_per_sm * NUM_SMS)) 
+    blocks_per_sm_by_shared_mem = floor(SMEM_PER_SM / shared_mem_bytes_per_block)
+    max_blocks_per_sm = min(2048 / threads_per_block, blocks_per_sm_by_shared_mem)
+    num_waves = ceil(num_blocks / (max_blocks_per_sm * NUM_SMS))
 
     if theoretical_bytes_dram > L2_CAPACITY:
         bytes_dram = theoretical_bytes_dram
         bytes_dram += (num_waves - 1) * kv_bytes
     else:
         bytes_dram = 3 * S * D * BYTES_PER_FLOAT   
-
 
 
     intensity = flops / bytes_dram
@@ -104,12 +109,10 @@ def model_roofline(S, D=D, Br=Br, Bc=Bc):
         "bytes_l1": 0,
         "bytes_l1_read": 0,
         "bytes_l1_write": 0,
-        "bytes_shared_mem_read": 0,
-        "bytes_shared_mem_write": 0,
         "intensity_shared_mem": 0,
         "intensity_l1": 0,
         "intensity_l2": 0,
-        "intensity_dram": 0
+        "intensity_dram": intensity
     }
 
 
@@ -145,8 +148,6 @@ def model_roofline_l2_serial(S, D=D, Br=Br, Bc=Bc):
         num_blocks_reuse = num_blocks - num_waves * NUM_SMS
     
     # shared mem
-    bytes_shared_mem_write = 0.0
-    bytes_shared_mem_read = 0.0
     intensity_shared_mem = 0.0
 
     num_iters  = S // Bc
@@ -186,7 +187,12 @@ def model_roofline_l2_serial(S, D=D, Br=Br, Bc=Bc):
 
     # L2: misses from L1
     l1_hit_bytes = num_blocks_reuse * kv_bytes
-    l1_hit_rate = 0.45
+    
+    if Br == 16:
+        l1_hit_rate = 0.4
+    else:
+        l1_hit_rate = 0.67
+
     bytes_l2_read = bytes_l1_read - (l1_hit_bytes * l1_hit_rate) 
     bytes_l2_write = S * D * BYTES_PER_FLOAT
     bytes_l2 = bytes_l2_read + bytes_l2_write
@@ -216,23 +222,48 @@ def model_roofline_l2_serial(S, D=D, Br=Br, Bc=Bc):
     # row_sum_lat = Bc * FMA_LAT + 1
     # kv_lat = sync_lat + qk_lat + pv_lat + max_lat + row_sum_lat
 
-    sync_lat    = N_SYNCS * SYNC_LAT
-    ld_lat      = L2_LD_LAT
-    qk_lat      = Bc * (N_SHFL * SHFL_LAT + FMA_LAT)
-    reduce_lat  = (D // 32) * (SMEM_LAT + FMA_LAT)
-    max_lat     = Bc * (SMEM_LAT + FMA_LAT)
-    exp_lat     = 2 * EXP_LAT
-    rowsum_lat  = Bc * (SMEM_LAT + FMA_LAT)
-    pv_lat      = Bc * (2 * SMEM_LAT + 2 * FMA_LAT)
+    # q_load_lat = DRAM_LAT
 
-    kv_lat = sync_lat + ld_lat + qk_lat + reduce_lat + max_lat + exp_lat + rowsum_lat + pv_lat
+    # sync_lat    = N_SYNCS * SYNC_LAT
+    # ld_lat      = L2_LD_LAT
+    # qk_lat      = Bc * (N_SHFL * SHFL_LAT + FMA_LAT)
+    # reduce_lat  = (D // 32) * (SMEM_LAT + FMA_LAT)
+    # max_lat     = Bc * (SMEM_LAT + FMA_LAT)
+    # exp_lat     = 2 * EXP_LAT
+    # rowsum_lat  = Bc * (SMEM_LAT + FMA_LAT)
+    # pv_lat      = Bc * (2 * SMEM_LAT + 2 * FMA_LAT)
 
-    stall_fraction = Bc * N_SHFL * SHFL_LAT / kv_lat
-    effective_lat  = kv_lat / (1 - stall_fraction)   # stalls inflate wall-clock time
+    # kv_lat = sync_lat + ld_lat + qk_lat + reduce_lat + max_lat + exp_lat + rowsum_lat + pv_lat
 
-    # TODO: check nubmer of blocks per sm
-    t_lat = num_waves * effective_lat * ceil(S / Bc)
-    t_lat = t_lat / SM_CLOCK
+    # t_lat = num_waves * (kv_lat * num_iters + q_load_lat)
+    # t_lat = t_lat / SM_CLOCK
+
+################
+# KV tile load: one latency + bandwidth transfer term
+    kv_tile_bytes      = 2 * Bc * D * BYTES_PER_FLOAT
+    l2_bw_per_sm_bpc   = (L2_BW  / NUM_SMS) / SM_CLOCK   # bytes/cycle/SM
+    dram_bw_per_sm_bpc = (DRAM_BW / NUM_SMS) / SM_CLOCK
+
+    # regime: does total KV data fit in L2?
+    total_kv = 2 * S * D * BYTES_PER_FLOAT
+    ld_lat = (L2_LD_LAT + kv_tile_bytes / l2_bw_per_sm_bpc if total_kv < L2_CAPACITY
+            else DRAM_LAT + kv_tile_bytes / dram_bw_per_sm_bpc)
+
+    kv_lat = (N_SYNCS * SYNC_LAT +
+            ld_lat +
+            Bc * (N_SHFL * SHFL_LAT + FMA_LAT) +   # QK dot products
+            (D // 32) * (SMEM_LAT + FMA_LAT) +       # warp partial reduce
+            Bc * (SMEM_LAT + FMA_LAT) +              # rowmax scan
+            (Bc + 1) * EXP_LAT +                     # exp(Sij) + exp(corr)
+            Bc * (SMEM_LAT + FMA_LAT) +              # rowsum
+            Bc * (2 * SMEM_LAT + 2 * FMA_LAT) +      # PV accumulate
+            2 * SMEM_LAT + FMA_LAT +                 # Oi correction
+            2 * SMEM_LAT)                            # rowmax/rsum commit
+
+    q_load_lat = DRAM_LAT
+
+    t_lat = num_waves * (kv_lat * num_iters + q_load_lat) / SM_CLOCK
+#################
 
     t_pred    = max(t_compute, t_dram, t_l2, t_lat)
 
@@ -258,8 +289,6 @@ def model_roofline_l2_serial(S, D=D, Br=Br, Bc=Bc):
         "bytes_l1": bytes_l1,
         "bytes_l1_read": bytes_l1_read,
         "bytes_l1_write": bytes_l1_write,
-        "bytes_shared_mem_read": bytes_shared_mem_read,
-        "bytes_shared_mem_write": bytes_shared_mem_write,
         "intensity_shared_mem": intensity_shared_mem,
         "intensity_l1": intensity_l1,
         "intensity_l2": intensity_l2,
@@ -355,6 +384,7 @@ def get_visualization_data(S, tile_pairs=((4, 4), (8, 8), (16, 16)), model_fn=mo
         ("intensity_l1", "L1 intensity", "FLOP/B"),
         ("intensity_shared_mem", "shared mem intensity", "FLOP/B"),
         ("tflops/s", "performance", "TFLOP/s"),
+        ("flops", "FLOPs", "GFLOPs"),
     ]
     data = {
         "S": S,
@@ -392,10 +422,11 @@ def get_visualization_data(S, tile_pairs=((4, 4), (8, 8), (16, 16)), model_fn=mo
                                            "l1tex__t_bytes_pipe_lsu_mem_global_op_st.sum")),
             "intensity_shared_mem": safe_div(ncu_flops, nget("sm__sass_data_bytes_mem_shared.sum")),
             "tflops/s": safe_div(ncu_flops, ncu_runtime_s * 1e12 if ncu_runtime_s else None),
+            "flops": ncu_flops / 1e9 if ncu_flops is not None else None,
         }
 
         for key, _, _ in metrics:
-            pred = r.get(key)
+            pred = r["flops"] / 1e9 if key == "flops" else r.get(key)
             actual = actuals[key]
             data["metrics"][key]["values"].append({
                 "Br": tile_Br,
