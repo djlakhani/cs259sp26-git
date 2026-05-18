@@ -135,14 +135,35 @@ def model_roofline_l2_serial(S, D=D, Br=Br, Bc=Bc):
     blocks_per_sm_by_shared_mem = floor(SMEM_PER_SM / shared_mem_bytes_per_block)
     max_blocks_per_sm = min(2048 / threads_per_block, blocks_per_sm_by_shared_mem)
     num_waves = ceil(num_blocks / (max_blocks_per_sm * NUM_SMS))
-    num_sms_at_least_one_block_last_wave = num_blocks - (num_waves - 1) * NUM_SMS
-    sms_with_two_blocks = (num_waves - 1) * NUM_SMS + (num_blocks % (NUM_SMS * max_blocks_per_sm)) % min(NUM_SMS, num_sms_at_least_one_block_last_wave)
+
+    num_blocks_last_wave = num_blocks - (num_waves - 1) * max_blocks_per_sm * NUM_SMS
+    num_blocks_scheduled_alone = 0
+    if num_blocks_last_wave <= NUM_SMS * 2:
+        num_blocks_scheduled_alone = num_blocks_last_wave % NUM_SMS
+        num_blocks_reuse = num_blocks - num_blocks_scheduled_alone - (num_waves - 1) * NUM_SMS
+    else:
+        num_blocks_reuse = num_blocks - num_waves * NUM_SMS
+
+    # num_sms_at_least_one_block_last_wave = num_blocks - (num_waves - 1) * NUM_SMS
+    # sms_with_two_blocks = (num_waves - 1) * NUM_SMS + (num_blocks % (NUM_SMS * max_blocks_per_sm)) % min(NUM_SMS, num_sms_at_least_one_block_last_wave)
 
     
     # shared mem
     bytes_shared_mem_write = 0.0
     bytes_shared_mem_read = 0.0
     intensity_shared_mem = 0.0
+
+    num_iters  = S // Bc
+    I = 8 * Br * (D + 1)
+    P = 4 * (
+        Bc * D * (2 + 3 * Br)
+        + Br * Bc * (D / 32 + 11)
+        + 2 * Br * D
+        + 11 * Br
+    )
+    F = 4 * Br * (D + 1)
+    bytes_shared_mem_total = num_blocks * (I + num_iters * P + F)
+    intensity_shared_mem = flops / bytes_shared_mem_total
     
 
     # l1
@@ -151,7 +172,7 @@ def model_roofline_l2_serial(S, D=D, Br=Br, Bc=Bc):
     bytes_l1 = bytes_l1_read + bytes_l1_write
 
     # L2: misses from L1
-    l1_hit_bytes = sms_with_two_blocks * kv_bytes
+    l1_hit_bytes = num_blocks_reuse * kv_bytes
     l1_hit_rate = 0.45
     bytes_l2_read = bytes_l1_read - (l1_hit_bytes * l1_hit_rate) 
     bytes_l2_write = S * D * BYTES_PER_FLOAT

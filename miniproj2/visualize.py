@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import model_clean
 
 
-TILE_PAIRS = [(4, 4), (8, 8), (16, 16)]
+TILE_PAIRS = [(8, 8), (16, 16)]
 METRIC_ORDER = [
     "intensity_dram",
     "intensity_l2",
