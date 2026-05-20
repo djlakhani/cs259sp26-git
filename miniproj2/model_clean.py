@@ -124,9 +124,10 @@ def model_roofline_l2_serial(S, D=D, Br=Br, Bc=Bc):
     # 3S^2 for softmax computations (row sum, score - max, scaling by root d)
     # 2S^2D / Bc for the line Oi[row * D + d] = Oi[row * D + d] * corr[row] + acc;
     # 1 FMA for each KV tile (# tiles = S / Bc) for each entry in output matrix (S * D)
-    mm_flops      = 2 * (S + 1) * S * D + (3 * S ** 2) + (2 * (S ** 2) * D / Bc)
-    sm_flops = 4 * S * S
-    flops = mm_flops + sm_flops
+    mm_flops = 2 * (S + 1) * S * D + (4 * S ** 2) + (2 * (S ** 2) * D / Bc)
+    
+    flops = mm_flops
+
     theoretical_bytes_dram = 4 * S * D * BYTES_PER_FLOAT   
     kv_bytes = 2 * S * D * BYTES_PER_FLOAT
     shared_mem_bytes_per_block = (2 * Br * D +
@@ -143,13 +144,12 @@ def model_roofline_l2_serial(S, D=D, Br=Br, Bc=Bc):
     num_waves = ceil(num_blocks / (max_blocks_per_sm * NUM_SMS))
 
     num_blocks_last_wave = num_blocks - (num_waves - 1) * max_blocks_per_sm * NUM_SMS
-    num_blocks_scheduled_alone = 0
-    if num_blocks_last_wave <= NUM_SMS * 2:
-        num_blocks_scheduled_alone = num_blocks_last_wave % NUM_SMS
-        num_blocks_reuse = num_blocks - num_blocks_scheduled_alone - (num_waves - 1) * NUM_SMS
+    
+    if num_blocks_last_wave <= NUM_SMS:
+        num_blocks_reuse = num_blocks - num_blocks_last_wave - (num_waves - 1) * NUM_SMS
     else:
         num_blocks_reuse = num_blocks - num_waves * NUM_SMS
-    
+
     # shared mem
     intensity_shared_mem = 0.0
 
@@ -176,9 +176,9 @@ def model_roofline_l2_serial(S, D=D, Br=Br, Bc=Bc):
         Br * Bc * D + # Vij reads
         2 * Br * D + # read and write Oi
         Br * 2 + # corr, read once for each warp
-        Br * 3
+        Br * 4
     )
-    F = 4 * Br * (D + 1)
+    F = 4 * Br * (D)
     bytes_shared_mem_total = num_blocks * (I + num_iters * P + F)
     intensity_shared_mem = flops / bytes_shared_mem_total
 
@@ -191,9 +191,9 @@ def model_roofline_l2_serial(S, D=D, Br=Br, Bc=Bc):
     l1_hit_bytes = num_blocks_reuse * kv_bytes
     
     if Br == 16:
-        l1_hit_rate = 0.4
+        l1_hit_rate = 0.45
     else:
-        l1_hit_rate = 0.67
+        l1_hit_rate = 0.65
 
     bytes_l2_read = bytes_l1_read - (l1_hit_bytes * l1_hit_rate) 
     bytes_l2_write = S * D * BYTES_PER_FLOAT
@@ -242,12 +242,12 @@ def model_roofline_l2_serial(S, D=D, Br=Br, Bc=Bc):
 
     t_lat = num_waves * (kv_lat * num_iters + q_load_lat) / SM_CLOCK
 
-    t_pred    = max(t_compute, t_dram, t_l2, t_lat)
+    t_pred = max(t_compute, t_dram, t_l2, t_lat)
 
     if t_pred == t_compute: bound = "compute"
     elif t_pred == t_dram:  bound = "DRAM"
     elif t_pred == t_l2: bound = "L2"
-    else:                   bound = "serial"
+    else: bound = "serial"
 
     # in TFLOPS
     performance = flops / (t_pred * 1e12)
