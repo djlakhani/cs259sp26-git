@@ -124,9 +124,9 @@ def model_roofline_l2_serial(S, D=D, Br=Br, Bc=Bc):
     # 3S^2 for softmax computations (row sum, score - max, scaling by root d)
     # 2S^2D / Bc for the line Oi[row * D + d] = Oi[row * D + d] * corr[row] + acc;
     # 1 FMA for each KV tile (# tiles = S / Bc) for each entry in output matrix (S * D)
-    mm_flops = 2 * (S + 1) * S * D + (4 * S ** 2) + (2 * (S ** 2) * D / Bc)
+    # mm_flops = 2 * (S + 1) * S * D + (4 * S ** 2) + (2 * (S ** 2) * D / Bc)
     
-    flops = mm_flops
+    flops = (8 * S * S * D) + (2 * (S ** 2) * D / Bc) + (5 * S * S) + (3 * (S * S) / Bc)
 
     theoretical_bytes_dram = 4 * S * D * BYTES_PER_FLOAT   
     kv_bytes = 2 * S * D * BYTES_PER_FLOAT
@@ -395,7 +395,9 @@ def get_visualization_data(S, tile_pairs=((4, 4), (8, 8), (16, 16)), model_fn=mo
                 return None
             return sum(entry.get(k, 0) for k in keys)
 
-        ncu_flops = (nget("smsp__sass_thread_inst_executed_op_ffma_pred_on.sum") * 2
+        ncu_flops = (nget("smsp__sass_thread_inst_executed_op_fadd_pred_on.sum")
+                     + 2 * nget("smsp__sass_thread_inst_executed_op_ffma_pred_on.sum")
+                     + nget("smsp__sass_thread_inst_executed_op_fmul_pred_on.sum")
                      if entry else None)
         ncu_runtime_s = (nget("gpu__time_duration.sum") / 1e9 if entry else None)
         actuals = {
@@ -487,7 +489,9 @@ def compare_ncu(sizes, model_fn=None, Br=Br, Bc=Bc):
         def safe_div(num, den):
             return num / den if num is not None and den else None
 
-        ncu_flops = (nget("smsp__sass_thread_inst_executed_op_ffma_pred_on.sum") * 2
+        ncu_flops = (nget("smsp__sass_thread_inst_executed_op_fadd_pred_on.sum")
+                     + 2 * nget("smsp__sass_thread_inst_executed_op_ffma_pred_on.sum")
+                     + nget("smsp__sass_thread_inst_executed_op_fmul_pred_on.sum")
                      if entry else None)
         ncu_dram_bytes = nget("dram__bytes_read.sum", "dram__bytes_write.sum")
         ncu_l2_bytes = nget("lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_ld.sum",

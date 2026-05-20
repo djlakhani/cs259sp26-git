@@ -8,8 +8,8 @@ Relevant metrics and what they validate in the model:
       → model bytes_l2 (bytes requested from L2 to SM, v2/v3 L2 bound)
   lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_ld/st.sum
       → actual L2 miss traffic (bytes that had to go to DRAM from L2)
-  smsp__sass_thread_inst_executed_op_ffma_pred_on.sum
-      → model flops / 2  (each FFMA = 2 FLOPs)
+  smsp__sass_thread_inst_executed_op_fadd/fmul/ffma_pred_on.sum
+      → model flops  (FADD/FMUL = 1 FLOP, FFMA = 2 FLOPs)
   sm__sass_data_bytes_mem_shared.sum
       → shared-memory traffic for derived shared-memory arithmetic intensity
   gpu__time_duration.sum
@@ -43,7 +43,9 @@ METRICS = [
     "l1tex__t_bytes_pipe_lsu_mem_global_op_st.sum",
     "lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_ld.sum",
     "lts__t_bytes_equiv_l1sectormiss_pipe_lsu_mem_global_op_st.sum",
+    "smsp__sass_thread_inst_executed_op_fadd_pred_on.sum",
     "smsp__sass_thread_inst_executed_op_ffma_pred_on.sum",
+    "smsp__sass_thread_inst_executed_op_fmul_pred_on.sum",
     "sm__sass_data_bytes_mem_shared.sum",
     "gpu__time_duration.sum",
     "sm__warps_active.avg.pct_of_peak_sustained_active",
@@ -136,8 +138,12 @@ def show_cache(path):
         l1w = entry.get("l1tex__t_bytes_pipe_lsu_mem_global_op_st.sum", 0)
         print(f"  L1 total:         {(l1r+l1w)/1e6:.2f} MB  (reads {l1r/1e6:.2f}  writes {l1w/1e6:.2f})")
 
-        ff = entry.get("smsp__sass_thread_inst_executed_op_ffma_pred_on.sum")
-        print(f"  FP32 FMAs:        {ff:.3e}  ({ff*2:.3e} FLOPs)" if ff else "  FP32 FMAs:        n/a")
+        fadd = entry.get("smsp__sass_thread_inst_executed_op_fadd_pred_on.sum", 0)
+        ffma = entry.get("smsp__sass_thread_inst_executed_op_ffma_pred_on.sum", 0)
+        fmul = entry.get("smsp__sass_thread_inst_executed_op_fmul_pred_on.sum", 0)
+        flops = fadd + 2 * ffma + fmul
+        print(f"  FP32 FLOPs:       {flops:.3e}  (FADD {fadd:.3e}  FFMA {ffma:.3e}  FMUL {fmul:.3e})"
+              if flops else "  FP32 FLOPs:       n/a")
         occ = entry.get("sm__warps_active.avg.pct_of_peak_sustained_active")
         print(f"  occupancy:        {occ:.1f}%" if occ else "  occupancy:        n/a")
 
